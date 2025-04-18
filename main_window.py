@@ -10,7 +10,10 @@ from PySide6.QtGui import QColor
 # Імпортуємо константи та наш віджет сітки
 from config import GRID_WIDTH, GRID_HEIGHT, VIEW_SIZE
 from simulation_grid_widget import SimulationGridWidget
-from entities import Entity, Wall, Bot
+# Переконаймося, що імпортуємо оновлені Bot, Wall, Food (якщо додали)
+from entities import Entity, Wall, Bot # , Food
+# Імпортуємо ACTIONS, якщо потрібно десь поза межами Bot
+# from bot_brain import ACTIONS
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -160,62 +163,117 @@ class MainWindow(QMainWindow):
     @Slot()
     def simulation_step(self):
         """Виконує один крок симуляції."""
-        # self.add_log("Simulation step...") # Можна розкоментувати для відладки
-
-        # Список змін, які потрібно застосувати до сітки: [(r, c, new_entity), ...]
         pending_changes = []
-        # Зберігаємо нові позиції ботів цього кроку, щоб уникнути конфліктів в межах одного кроку
-        next_bot_positions = {}
+        next_bot_positions = {} # {bot_instance: (r, c)}
 
-        # Ітеруємо по копії списку, бо боти можуть видалятися (в майбутньому)
-        for bot in list(self.entities_list):
-            if bot not in self.bot_positions: continue # Пропускаємо, якщо бота вже немає (на майбутнє)
+        # Перемішуємо список ботів, щоб порядок оновлення був випадковим
+        # Це може допомогти уникнути систематичних переваг у деяких ботів
+        random.shuffle(self.entities_list)
 
-            current_pos = self.bot_positions[bot]
-            r, c = current_pos
+        for bot in list(self.entities_list): # Ітеруємо по копії
+            if bot not in self.bot_positions: continue # Якщо бота видалили
 
-            # Викликаємо update бота, передаючи сітку і його поточну позицію
-            # Bot.update тепер поверне нову позицію (r, c) або None, якщо не рухався
-            move_action = bot.update(self.grid_data, r, c)
+            current_r, current_c = self.bot_positions[bot]
 
-            if move_action:
-                # move_action - це (new_r, new_c)
-                new_r, new_c = move_action
+            # --- Отримуємо дію від мозку бота ---
+            # bot.update тепер повертає рядок дії ("move_north", "stay", etc.)
+            action_name = bot.update(self.grid_data, current_r, current_c)
 
-                # Перевірка, чи нова позиція не зайнята іншим ботом *на цьому ж кроці*
-                target_occupied = False
-                for pos in next_bot_positions.values():
-                    if pos == (new_r, new_c):
-                        target_occupied = True
+            if action_name is None: # На випадок неочікуваної помилки в update
+                action_name = "stay"
+
+            # --- Інтерпретуємо дію та розраховуємо нову позицію ---
+            new_r, new_c = current_r, current_c # За замовчуванням залишаємось на місці
+            moved = False
+
+            if action_name == "move_north":
+                new_r -= 1
+                moved = True
+            elif action_name == "move_east":
+                new_c += 1
+                moved = True
+            elif action_name == "move_south":
+                new_r += 1
+                moved = True
+            elif action_name == "move_west":
+                new_c -= 1
+                moved = True
+            elif action_name == "stay":
+                moved = False
+            # else: # Невідома дія - ігноруємо
+            #     print(f"Warning: Unknown action '{action_name}' from bot {bot.properties.get('id')}")
+            #     moved = False
+
+
+            # --- Перевірка можливості руху (на рівні симуляції) ---
+            can_move = False
+            if moved:
+                # 1. Перевірка меж сітки
+                if 0 <= new_r < GRID_HEIGHT and 0 <= new_c < GRID_WIDTH:
+                    # 2. Перевірка, чи цільова клітинка зараз вільна (не стіна, не інший СТАТИЧНИЙ об'єкт)
+                    #    Важливо: ми не перевіряємо тут на інших *рухомих* ботів,
+                    #    оскільки це буде зроблено при перевірці конфліктів нижче.
+                    target_cell = self.grid_data[new_r][new_c]
+                    # Дозволяємо рух тільки в порожні клітинки (або на їжу - TODO)
+                    if target_cell is None: # or isinstance(target_cell, Food):
+                        can_move = True
+                    # else: print(f"Bot {bot.properties.get('id')} blocked by {type(target_cell)}") # Відладка
+                # else: print(f"Bot {bot.properties.get('id')} hit boundary") # Відладка
+
+            # --- Перевірка конфліктів з іншими ботами на цьому кроці ---
+            final_r, final_c = current_r, current_c # Де бот опиниться в кінці кроку
+
+            if can_move:
+                target_occupied_this_step = False
+                # Перевіряємо, чи хтось вже "забронював" цільову клітинку
+                for occupied_pos in next_bot_positions.values():
+                    if occupied_pos == (new_r, new_c):
+                        target_occupied_this_step = True
+                        # print(f"Bot {bot.properties.get('id')} - target ({new_r},{new_c}) already claimed this step.") # Відладка
                         break
 
-                if not target_occupied:
-                     # Якщо вільно, плануємо зміну
-                    pending_changes.append((new_r, new_c, bot)) # Поставити бота на нове місце
-                    pending_changes.append((r, c, None))       # Зробити старе місце порожнім
-                    next_bot_positions[bot] = (new_r, new_c) # Записуємо нову позицію для перевірок іншими ботами
-                else:
-                    # Якщо клітинка вже заброньована іншим ботом на цьому кроці, бот залишається на місці
-                    next_bot_positions[bot] = (r, c) # Залишається на старій позиції
-            else:
-                 # Якщо бот не рухався, його позиція не змінюється
-                 next_bot_positions[bot] = (r, c)
+                if not target_occupied_this_step:
+                    # Рух дозволено і немає конфлікту
+                    final_r, final_c = new_r, new_c
+                    # Плануємо зміни для сітки
+                    pending_changes.append((new_r, new_c, bot)) # Поставити бота
+                    pending_changes.append((current_r, current_c, None)) # Звільнити старе місце
+                # else: Рух не вдався через конфлікт, бот залишається на місці (final_r, final_c = current_r, current_c)
+            # else: Рух не вдався через стіну/межу (final_r, final_c = current_r, current_c)
 
-        # Застосовуємо всі заплановані зміни до реальної сітки
+            # Записуємо фінальну позицію бота для цього кроку
+            next_bot_positions[bot] = (final_r, final_c)
+
+            # --- TODO: Обробка взаємодій ---
+            # Якщо бот опинився на клітинці з їжею (якщо can_move було True і target_cell був Food)
+            # if final_r != current_r or final_c != current_c: # Якщо бот рухався
+            #     final_cell_content = self.grid_data[final_r][final_c] # Що було в клітинці КУДИ він іде
+            #     if isinstance(final_cell_content, Food):
+            #          # З'їсти їжу
+            #          eaten_energy = final_cell_content.properties.get('energy', 0)
+            #          bot.properties['energy'] = min(MAX_ENERGY, bot.properties['energy'] + eaten_energy)
+            #          print(f"Bot {bot.properties.get('id')} ate food! Energy: {bot.properties['energy']}")
+            #          # Потрібно видалити їжу з pending_changes або оновити відповідний запис,
+            #          # щоб їжа не була намальована після того, як її з'їли.
+            #          # Або запланувати її видалення в pending_changes (краще)
+            #          # Важливо: поточна логіка pending_changes може перезаписати їжу ботом.
+            #          # Потрібно ретельніше продумати обробку взаємодій.
+
+
+        # --- Застосування змін ---
         if pending_changes:
+            num_bots_moved = sum(1 for r, c, ent in pending_changes if isinstance(ent, Bot))
+            # print(f"Applying {len(pending_changes)} changes ({num_bots_moved} bots moved).") # Відладка
+
             for r_change, c_change, new_entity in pending_changes:
-                 # Перевірка меж на всяк випадок (хоча update має це робити)
                  if 0 <= r_change < GRID_HEIGHT and 0 <= c_change < GRID_WIDTH:
                      self.grid_data[r_change][c_change] = new_entity
+                 # else: print(f"Warning: Change out of bounds ({r_change},{c_change})") # Відладка
 
-            # Оновлюємо словник позицій ботів
             self.bot_positions = next_bot_positions
-
-            # Оновлюємо віджет сітки, щоб відобразити зміни
             self.grid_widget.update()
 
-        # Якщо симуляція не запущена (тобто це був клік "Крок"),
-        # переконуємось, що кнопки у правильному стані
+        # --- Оновлення стану кнопок (як раніше) ---
         if not self.simulation_running:
              self.start_button.setEnabled(True)
              self.stop_button.setEnabled(False)

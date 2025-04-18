@@ -1,152 +1,133 @@
-# entities.py
 import random
+import torch
 from PySide6.QtGui import QColor, Qt
-# Імпортуємо константи розмірів сітки з config.py для перевірки меж
 from config import GRID_WIDTH, GRID_HEIGHT
 
-class Entity:
-    """Базовий клас для всіх об'єктів на сітці."""
-    def __init__(self, entity_type="generic", color=QColor(Qt.GlobalColor.gray), properties=None):
-        """
-        Ініціалізатор базової сутності.
+try:
+    from bot_brain import BotBrainNet, prepare_input_vector, ACTIONS, MAX_ENERGY
+except ImportError as e:
+    print(f"CRITICAL ERROR: Could not import from bot_brain.py: {e}")
+    raise
 
-        Args:
-            entity_type (str): Рядок, що ідентифікує тип сутності (напр., "wall", "bot").
-            color (QColor): Колір для візуалізації сутності на сітці.
-            properties (dict, optional): Словник з додатковими властивостями сутності.
-                                         За замовчуванням None (створюється порожній словник).
-        """
+
+# Імпортуємо все необхідне з bot_brain
+try:
+    from bot_brain import BotBrainNet, prepare_input_vector, ACTIONS, MAX_ENERGY
+except ImportError as e:
+    print(f"CRITICAL ERROR: Could not import from bot_brain.py: {e}")
+    # Якщо мозок не імпортується, бот не зможе працювати.
+    # Можна або завершити програму, або визначити заглушки,
+    # але краще виправити проблему імпорту.
+    raise # Перекидаємо помилку далі, щоб програма не продовжила роботу некоректно
+
+# --- Базовий клас Entity ---
+class Entity:
+    def __init__(self, entity_type="generic", color=QColor(Qt.GlobalColor.gray), properties=None):
         self.entity_type = entity_type
         self.color = color
-        # Створюємо копію словника properties або новий порожній, щоб уникнути спільного змінюваного стану
         self.properties = properties.copy() if properties is not None else {}
 
     def get_state_info(self):
-        """
-        Повертає рядок з інформацією про стан сутності для логування або відображення.
-        Формує рядок з типу та властивостей сутності.
-        """
-        # Створюємо рядок з властивостей виду "key1: value1, key2: value2"
         prop_str = ", ".join(f"{k}: {v}" for k, v in self.properties.items())
         if prop_str:
-            # Якщо є властивості, повертаємо тип і властивості
             return f"Type: {self.entity_type}, Properties: {prop_str}"
         else:
-            # Якщо властивостей немає, повертаємо тільки тип
             return f"Type: {self.entity_type}"
 
     def update(self, grid_data, row, col):
         """
-        Метод для оновлення стану сутності на кожному кроці симуляції.
-        Базовий клас нічого не робить і має бути перевизначений у похідних класах,
-        якщо сутність має якусь поведінку (наприклад, рух, взаємодія).
-
-        Args:
-            grid_data (list[list[Entity or None]]): Посилання на всю сітку симуляції.
-                                                    Дозволяє сутності "бачити" своє оточення.
-            row (int): Поточний рядок сутності на сітці.
-            col (int): Поточний стовпець сутності на сітці.
-
-        Returns:
-            Any: Результат оновлення. Формат залежить від похідного класу.
-                 Для рухомих сутностей може повертати нові координати або інформацію про зміни.
-                 Базова реалізація повертає None.
+        Повертає рядок з назвою дії ('move_north', 'stay', etc.) або None.
+        Базовий клас нічого не робить.
         """
-        # Базова реалізація нічого не робить
         return None
 
-# --- Похідні класи ---
-
+# --- Клас Wall ---
 class Wall(Entity):
-    """Клас для стін - нерухомих перешкод."""
     def __init__(self):
-        """Ініціалізує стіну з типом "wall" і темно-сірим кольором."""
         super().__init__(entity_type="wall", color=QColor(Qt.GlobalColor.darkGray))
-        # Стіни не мають активної поведінки, тому метод update не перевизначається.
-        # Додаткові властивості також не потрібні за замовчуванням.
 
+# --- Клас Bot ---
 class Bot(Entity):
-    """Клас для рухомих ботів."""
     def __init__(self, bot_id, color=QColor(Qt.GlobalColor.red), energy=100):
-        """
-        Ініціалізує бота.
-
-        Args:
-            bot_id (str): Унікальний ідентифікатор бота.
-            color (QColor, optional): Колір бота. За замовчуванням червоний.
-            energy (int, optional): Початковий рівень енергії бота. За замовчуванням 100.
-        """
-        # Викликаємо ініціалізатор базового класу, передаючи тип "bot", колір
-        # та словник з початковими властивостями: id та energy.
         super().__init__(entity_type="bot", color=color, properties={"id": bot_id, "energy": energy})
+        self.brain = BotBrainNet()
+        self.brain.eval()
+        # --- Додаємо прапорець для відстеження логування смерті ---
+        self.logged_death = False # Спочатку вважаємо, що про смерть не повідомляли
 
     def update(self, grid_data, row, col):
-        """
-        Виконує один крок логіки бота: спроба зробити випадковий крок.
-        Перевіряє межі сітки та наявність перешкод у цільовій клітинці.
+        # --- 1. Збір інформації про оточення (як раніше) ---
+        surroundings = {}
+        relative_coords = {
+            "north": (-1, 0), "east": (0, 1), "south": (1, 0), "west": (0, -1)
+        }
+        for direction, (dr, dc) in relative_coords.items():
+            nr, nc = row + dr, col + dc
+            if 0 <= nr < GRID_HEIGHT and 0 <= nc < GRID_WIDTH:
+                surroundings[direction] = grid_data[nr][nc]
+            else:
+                surroundings[direction] = Wall()
 
-        Args:
-            grid_data (list[list[Entity or None]]): Поточний стан сітки симуляції.
-            row (int): Поточний рядок бота.
-            col (int): Поточний стовпець бота.
+        # --- 2. Отримання ПОТОЧНОЇ енергії ---
+        current_energy = self.properties.get('energy', 0.0)
 
-        Returns:
-            tuple[int, int] or None: Повертає кортеж (new_r, new_c) з новими координатами,
-                                     якщо рух можливий і вдалий.
-                                     Повертає None, якщо бот не може рухатися (межа, перешкода)
-                                     або вирішив залишитися на місці (якщо така логіка додана).
-        """
-        # Можливі варіанти зміщення: вгору, вниз, вліво, вправо
-        possible_moves = [
-            (-1, 0),  # Вгору (зменшення рядка)
-            (1, 0),   # Вниз (збільшення рядка)
-            (0, -1),  # Вліво (зменшення стовпця)
-            (0, 1)    # Вправо (збільшення стовпця)
-            # Можна додати сюди (0, 0), якщо бот може вирішити залишитися на місці
-        ]
+        # --- Перевірка, чи є взагалі енергія для дій ---
+        if current_energy <= 0:
+            # Якщо енергії вже немає, перевіряємо, чи логували смерть
+            if not self.logged_death:
+                print(f"Bot {self.properties.get('id')} ran out of energy!")
+                self.logged_death = True # Позначили, що залогували
+            return "stay" # Немає енергії - стоїмо на місці
 
-        # Вибираємо випадкове зміщення з можливих
-        dr, dc = random.choice(possible_moves)
+        # --- Якщо енергія є, продовжуємо ---
 
-        # Розраховуємо потенційні нові координати
-        new_r, new_c = row + dr, col + dc
+        # --- 3. Підготовка вхідного вектора (як раніше) ---
+        input_vector = prepare_input_vector(surroundings, current_energy)
+        if input_vector is None:
+            print(f"Warning: Bot {self.properties.get('id')} failed to prepare input vector. Staying put.")
+            return "stay"
 
-        # --- Перевірки можливості руху ---
+        # --- 4. Отримання оцінок дій від мозку (як раніше) ---
+        try:
+            with torch.no_grad():
+                action_scores = self.brain(input_vector)
+        except Exception as e:
+            print(f"Error during brain forward pass for bot {self.properties.get('id')}: {e}")
+            return "stay"
 
-        # 1. Перевірка виходу за межі сітки
-        # Використовуємо GRID_WIDTH і GRID_HEIGHT, імпортовані з config.py
-        if not (0 <= new_r < GRID_HEIGHT and 0 <= new_c < GRID_WIDTH):
-            # print(f"Bot {self.properties.get('id')} at ({row},{col}) tried move to ({new_r},{new_c}) - Out of bounds") # Для відладки
-            return None # Рух неможливий, вихід за межі
+        # --- 5. Вибір найкращої дії (як раніше) ---
+        chosen_action_index = torch.argmax(action_scores).item()
+        chosen_action_name = ACTIONS[chosen_action_index]
 
-        # 2. Перевірка, чи цільова клітинка вільна (тобто містить None)
-        target_cell = grid_data[new_r][new_c]
-        if target_cell is not None:
-            # Клітинка зайнята іншою сутністю (стіною або іншим ботом)
-            # entity_type = getattr(target_cell, 'entity_type', 'Unknown') # Безпечне отримання типу
-            # print(f"Bot {self.properties.get('id')} at ({row},{col}) tried move to ({new_r},{new_c}) - Blocked by {entity_type}") # Для відладки
-            return None # Рух неможливий, клітинка зайнята
+        # --- 6. Зменшення енергії ---
+        # Зменшуємо енергію *після* прийняття рішення
+        new_energy = max(0, current_energy - 1)
+        self.properties['energy'] = new_energy
 
-        # --- Рух можливий ---
-        # Якщо всі перевірки пройдені, бот може переміститися в нову клітинку.
-        # print(f"Bot {self.properties.get('id')} moving from ({row},{col}) to ({new_r},{new_c})") # Для відладки
+        # --- Перевірка, чи енергія ТІЛЬКИ ЩО закінчилась ---
+        if new_energy <= 0 and not self.logged_death:
+             # Якщо енергія стала <= 0 *на цьому кроці* і ми ще не логували
+             print(f"Bot {self.properties.get('id')} ran out of energy!")
+             self.logged_death = True # Позначили, що залогували
 
-        # Повертаємо нові координати, куди бот хоче переміститися
-        return (new_r, new_c)
+        # --- Скидання прапорця, якщо енергія відновилась (на майбутнє) ---
+        # Цей блок спрацює, якщо бот якось отримає енергію (напр. з'їсть їжу)
+        if new_energy > 0 and self.logged_death:
+            # Якщо енергія знову позитивна, а ми раніше логували смерть
+            self.logged_death = False # Скидаємо прапорець, дозволяємо логувати знову
+
+        # --- 7. Повернення назви дії ---
+        return chosen_action_name
 
     def get_state_info(self):
-        """
-        Перевизначаємо метод для можливого додавання специфічної для бота інформації в майбутньому.
-        Наразі просто викликає базову реалізацію.
-        """
-        # Можна додати більше інформації, наприклад, поточну енергію:
-        # base_info = super().get_state_info()
-        # return f"{base_info}"
-        # Поки що залишимо як є, базова реалізація показує ID та енергію.
-        return super().get_state_info()
+        """Повертає базову інформацію + поточну енергію."""
+        base_info = super().get_state_info()
+        # Перезаписуємо properties у рядку, щоб включити оновлену енергію
+        prop_str = ", ".join(f"{k}: {v}" for k, v in self.properties.items())
+        return f"Type: {self.entity_type}, Properties: {prop_str}"
 
-# Можна додавати інші класи сутностей тут, наприклад:
-# class Food(Entity):
-#     def __init__(self, energy_value=10):
-#         super().__init__(entity_type="food", color=QColor(Qt.GlobalColor.yellow), properties={"energy": energy_value})
-#         # Їжа зазвичай не має методу update, вона просто існує
+
+# --- Можна додати клас Food, якщо потрібно ---
+class Food(Entity):
+    def __init__(self, energy_value=25):
+         super().__init__(entity_type="food", color=QColor(Qt.GlobalColor.yellow), properties={"energy": energy_value})

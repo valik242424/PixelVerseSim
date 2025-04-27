@@ -1,10 +1,9 @@
-# simulation_grid_widget.py
 from PySide6.QtWidgets import QWidget, QSizePolicy
 from PySide6.QtGui import QPainter, QColor, QKeyEvent, QBrush, QPen
-from PySide6.QtCore import Qt, QRect, Signal
+from PySide6.QtCore import Qt, QRect, Signal, QTimer
 
 from config import GRID_WIDTH, GRID_HEIGHT, VIEW_SIZE, CELL_SIZE_PX
-from entities import Entity # <--- Імпортуємо базовий клас Entity
+from entities import Entity
 
 class SimulationGridWidget(QWidget):
     viewMoved = Signal(str) # Можливо, цей сигнал вже не потрібен? Залишимо поки що.
@@ -21,11 +20,14 @@ class SimulationGridWidget(QWidget):
         self.view_rows = VIEW_SIZE
         self.view_cols = VIEW_SIZE
 
-        self.view_row_offset = 0
-        self.view_col_offset = 0
+        self.view_row_offset = 40
+        self.view_col_offset = 40
 
-        # Словник self.colors більше не потрібен тут, колір береться з Entity
-        # self.colors = { ... } # <--- ВИДАЛИТИ або закоментувати
+        # Додаємо прапорці стану для клавіш руху
+        self.key_w_pressed = False
+        self.key_a_pressed = False
+        self.key_s_pressed = False
+        self.key_d_pressed = False
 
         self.empty_color = QColor(Qt.GlobalColor.white) # <--- Колір для порожніх клітинок (None)
         self.default_color = QColor(Qt.GlobalColor.lightGray) # <--- Колір для клітинок поза межами сітки
@@ -97,21 +99,80 @@ class SimulationGridWidget(QWidget):
         self.set_view_position(self.view_row_offset + dr, self.view_col_offset + dc)
 
     def keyPressEvent(self, event: QKeyEvent):
-        key = event.key()
-        moved = False
-        if key == Qt.Key.Key_W:
-            self.move_view(-1, 0); moved = True
-        elif key == Qt.Key.Key_S:
-            self.move_view(1, 0); moved = True
-        elif key == Qt.Key.Key_A:
-            self.move_view(0, -1); moved = True
-        elif key == Qt.Key.Key_D:
-            self.move_view(0, 1); moved = True
+        """Обробляє натискання клавіш."""
+        accepted = False
+         # Перевіряємо, чи це не автоповтор, щоб прапорець не встановлювався багато разів
+        if not event.isAutoRepeat():
+            key = event.key()
+            if key == Qt.Key.Key_W:
+                self.key_w_pressed = True
+                accepted = True
+            elif key == Qt.Key.Key_A:
+                self.key_a_pressed = True
+                accepted = True
+            elif key == Qt.Key.Key_S:
+                self.key_s_pressed = True
+                accepted = True
+            elif key == Qt.Key.Key_D:
+                self.key_d_pressed = True
+                accepted = True
 
-        if moved:
+        # Якщо натиснута одна з клавіш WASD (або вже була натиснута)
+        if self.key_w_pressed or self.key_a_pressed or self.key_s_pressed or self.key_d_pressed:
+             self.process_movement() # Викликаємо розрахунок руху
+             accepted = True # Вважаємо подію обробленою
+
+        if accepted:
             event.accept()
         else:
-            super().keyPressEvent(event)
+            super().keyPressEvent(event) # Передаємо далі, якщо це не WASD
+
+    def process_movement(self):
+        """Розраховує та виконує рух на основі натиснутих клавіш."""
+        dr = 0 # Зміна рядка
+        dc = 0 # Зміна стовпця
+
+        if self.key_w_pressed:
+            dr -= 1
+        if self.key_s_pressed:
+            dr += 1
+        if self.key_a_pressed:
+            dc -= 1
+        if self.key_d_pressed:
+            dc += 1
+
+        # Якщо є куди рухатись (dr або dc не нуль)
+        if dr != 0 or dc != 0:
+            # Важливо: dr і dc тепер можуть бути -1, 0, 1
+            # move_view сам обмежить рух межами сітки
+            self.move_view(dr, dc)
+
+    def keyReleaseEvent(self, event: QKeyEvent):
+        """Обробляє відпускання клавіш."""
+        accepted = False
+        # Перевіряємо, чи це не автоповтор
+        if not event.isAutoRepeat():
+            key = event.key()
+            if key == Qt.Key.Key_W:
+                self.key_w_pressed = False
+                accepted = True
+            elif key == Qt.Key.Key_A:
+                self.key_a_pressed = False
+                accepted = True
+            elif key == Qt.Key.Key_S:
+                self.key_s_pressed = False
+                accepted = True
+            elif key == Qt.Key.Key_D:
+                self.key_d_pressed = False
+                accepted = True
+
+        if accepted:
+            event.accept()
+            # Опціонально: можна викликати перерахунок руху тут теж,
+            # якщо хочеш, щоб зупинка була миттєвою при відпусканні однієї з клавіш
+            # self.process_movement()
+        else:
+            super().keyReleaseEvent(event) # Передаємо подію далі, якщо це не WASD
 
     def mousePressEvent(self, event):
         cell_size = self.calculate_cell_size()

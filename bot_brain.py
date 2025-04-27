@@ -1,8 +1,8 @@
-# bot_brain.py
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np # Може знадобитися для підготовки даних
+from config import MAX_ENERGY
 
 # Імпортуємо класи сутностей, щоб розпізнавати їх в оточенні
 # Припускаємо, що entities.py знаходиться в тому ж каталозі
@@ -26,9 +26,6 @@ OUTPUT_SIZE = 5   # Кількість можливих дій (N, E, S, W, Stay
 # Можливі дії, які може вибрати бот
 ACTIONS = ["move_north", "move_east", "move_south", "move_west", "stay"]
 ACTION_MAP = {name: i for i, name in enumerate(ACTIONS)} # Для зручності
-
-# Максимальна енергія для нормалізації (підберіть відповідно до вашої симуляції)
-MAX_ENERGY = 200 # Припустимо, бот не може мати більше 200 енергії
 
 # Індекси для one-hot encoding типів клітинок
 CELL_TYPE_EMPTY = 0

@@ -1,7 +1,7 @@
 import random
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QTextEdit, QLabel, QSlider, QPushButton  # <--- Додано QPushButton
+    QTextEdit, QLabel, QSlider, QPushButton
 )
 # Додаємо QTimer і можливість роботи зі слотами/сигналами напряму
 from PySide6.QtCore import Qt, Slot, QTimer
@@ -11,14 +11,12 @@ from PySide6.QtGui import QColor
 from config import GRID_WIDTH, GRID_HEIGHT, VIEW_SIZE
 from simulation_grid_widget import SimulationGridWidget
 # Переконаймося, що імпортуємо оновлені Bot, Wall, Food (якщо додали)
-from entities import Entity, Wall, Bot # , Food
-# Імпортуємо ACTIONS, якщо потрібно десь поза межами Bot
-# from bot_brain import ACTIONS
+from entities import Entity, Wall, Bot , Food
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Симуляція сітки 100x100 з сутностями")
+        self.setWindowTitle("PixelVerseSim - Симуляція Піксельного Світу")
         self.setGeometry(100, 100, 900, 500)
 
         # 1. Створюємо дані для сітки та сутності (як і раніше)

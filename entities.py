@@ -2,23 +2,7 @@ import random
 import torch
 from PySide6.QtGui import QColor, Qt
 from config import GRID_WIDTH, GRID_HEIGHT
-
-try:
-    from bot_brain import BotBrainNet, prepare_input_vector, ACTIONS, MAX_ENERGY
-except ImportError as e:
-    print(f"CRITICAL ERROR: Could not import from bot_brain.py: {e}")
-    raise
-
-
-# Імпортуємо все необхідне з bot_brain
-try:
-    from bot_brain import BotBrainNet, prepare_input_vector, ACTIONS, MAX_ENERGY
-except ImportError as e:
-    print(f"CRITICAL ERROR: Could not import from bot_brain.py: {e}")
-    # Якщо мозок не імпортується, бот не зможе працювати.
-    # Можна або завершити програму, або визначити заглушки,
-    # але краще виправити проблему імпорту.
-    raise # Перекидаємо помилку далі, щоб програма не продовжила роботу некоректно
+from bot_brain import BotBrainNet, prepare_input_vector, ACTIONS, MAX_ENERGY
 
 # --- Базовий клас Entity ---
 class Entity:

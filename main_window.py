@@ -1,6 +1,5 @@
-# refactored_code/main_window.py
 import sys
-import random # Може бути потрібен, якщо випадкові кольори для ботів залишаться тут
+import random
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QTextEdit, QLabel, QSlider, QPushButton
@@ -14,7 +13,6 @@ from config import GRID_WIDTH, GRID_HEIGHT, VIEW_SIZE
 # Імпортуємо віджет сітки ТА новий рушій симуляції
 from simulation_grid_widget import SimulationGridWidget
 from simulation_engine import SimulationEngine
-# НЕ імпортуємо Entity, Wall, Bot, Food тут - вони в engine
 
 class MainWindow(QMainWindow):
     def __init__(self):

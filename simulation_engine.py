@@ -1,4 +1,3 @@
-# refactored_code/simulation_engine.py
 import random
 from config import GRID_WIDTH, GRID_HEIGHT, MAX_ENERGY
 # Імпортуємо класи сутностей з нашого рефакторнутого файлу

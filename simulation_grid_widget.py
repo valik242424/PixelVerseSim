@@ -1,4 +1,3 @@
-# refactored_code/simulation_grid_widget.py
 from PySide6.QtWidgets import QWidget, QSizePolicy
 from PySide6.QtGui import QPainter, QColor, QKeyEvent, QBrush, QPen, QMouseEvent
 from PySide6.QtCore import Qt, QRect, Signal, Slot
@@ -68,9 +67,6 @@ class SimulationGridWidget(QWidget):
 
         cell_size = self.calculate_cell_size()
         if cell_size == 0: return # Немає що малювати
-
-        # Малюємо фон (на випадок, якщо клітинки менші за віджет)
-        painter.fillRect(self.rect(), self.default_color)
 
         total_view_width = self.view_cols * cell_size
         total_view_height = self.view_rows * cell_size
